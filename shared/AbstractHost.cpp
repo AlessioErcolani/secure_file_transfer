@@ -163,6 +163,17 @@ recvMessage(int sd, byte*& pt, size_t& pt_len)
         throw security_exception("digest do not correspond");
     }
 
+    //check for replay
+    unsigned int expected_packet_number = session->packet_number_received;            
+    unsigned int received_packet_number;
+    memcpy(&received_packet_number, header + PACKET_NUM_OFFSET, sizeof(unsigned int));
+    
+    if (expected_packet_number != received_packet_number)
+    {
+        delete[] header;
+        throw security_exception("replay attack");
+    }
+
     //get payload length
     size_t pl_len = 0;
     memcpy(&pl_len, header + PAYLOAD_LEN_OFFSET, sizeof(size_t));
@@ -236,8 +247,6 @@ onReadySocket(int sd)
     unsigned char* ptr = NULL;
     size_t recv_bytes = 0;   
     
-    connection_information[sd].packet_number_received++;
-
     if (socket_is_authenticated(sd))
     {
         try
@@ -264,6 +273,7 @@ onReadySocket(int sd)
             return;
         }
     }
+    connection_information[sd].packet_number_received++;
     onReceive(sd, ptr, recv_bytes);     
 }
 
