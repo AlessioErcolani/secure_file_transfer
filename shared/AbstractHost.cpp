@@ -157,6 +157,8 @@ recvMessage(int sd, byte*& pt, size_t& pt_len)
         delete[] header;
         return false;
     }
+
+//Log::dump(TO_STR("header (" << hd_len << ") bytes"), header, hd_len);
     
     //check for header corruption
     //TODO: handle exception
@@ -183,13 +185,13 @@ recvMessage(int sd, byte*& pt, size_t& pt_len)
     memcpy(&pl_len, header + PAYLOAD_LEN_OFFSET, sizeof(size_t));
     
     //prepare space for header and payload (to compute digest later)
-    byte* header_payload = new byte[hd_len + pl_len];   //create buffer
-    memcpy(header_payload, header, hd_len);             //copy header at the beginning of the buffer
-    byte* iv = &header_payload[hd_len];                 //iv starts just after the header
-    byte* payload = &header_payload[hd_len + iv_len];   //payload starts after the iv
+    byte* header_payload = new byte[hd_len + pl_len];       //create buffer
+    memcpy(header_payload, header, hd_len);                 //copy header at the beginning of the buffer
+    byte* iv = &header_payload[hd_len];                     //iv starts just after the header
+    byte* ciphertext = &header_payload[hd_len + iv_len];    //ciphertext starts after the iv
     
     //receive payload (exactly pl_len bytes)
-    bytes_received = recv(sd, (void*) payload, pl_len, MSG_WAITALL);
+    bytes_received = recv(sd, (void*) (header_payload + hd_len), pl_len, MSG_WAITALL);
     if (bytes_received == 0)
     {
         delete[] header;
@@ -224,7 +226,7 @@ recvMessage(int sd, byte*& pt, size_t& pt_len)
     //decrypt payload
     try
     {
-        session->cipher->decrypt(payload, pl_len - iv_len, pt, pt_len, iv);
+        session->cipher->decrypt(ciphertext, pl_len - iv_len, pt, pt_len, iv);
     }
     catch(exception& e)
     {

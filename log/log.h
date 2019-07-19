@@ -43,7 +43,7 @@ enum LogLevel
 class Log
 {
     static LogLevel level;
-    static const bool dump_allowed = true;
+    static const bool dump_allowed = false;
 public:
     static void i(string msg, string tag = "LOG", ostream& os = cout);
     static void w(string msg, string tag = "LOG", ostream& os = cout);
