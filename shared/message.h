@@ -1,8 +1,11 @@
 #ifndef MESSAGE_H
 #define MESSAGE_H
 
+#include <openssl/rand.h>
+
 #include "../security/HMAC.h"
 #include "../security/BlockCipher.h"
+#include "exceptions.h"
 
 #define PACKET_NUM_OFFSET   0
 #define PAYLOAD_LEN_OFFSET  (PACKET_NUM_OFFSET + sizeof(unsigned int))

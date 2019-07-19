@@ -226,7 +226,7 @@ on_recv_public_key_client(int sd, byte buffer[], size_t n)
     size_t half_digest_session_key_len = hash->getDigestSize()/2;
 
     session->hmac = new SHA256_HMAC(digest_session_key);                                    //lsb
-    session->cipher = new AES_256_ECB(digest_session_key + half_digest_session_key_len);    //msb
+    session->cipher = new AES_256_CBC(digest_session_key + half_digest_session_key_len);    //msb
 
     #pragma optimize("", off)
     memset((void*) digest_session_key, 0, hash->getDigestSize());   //clear key (for security)

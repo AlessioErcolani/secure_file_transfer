@@ -16,9 +16,10 @@ using namespace std;
 class BlockCipher
 {
     byte* key;
+public:
     const size_t KEY_SIZE;
     const size_t BLOCK_SIZE;
-public:
+
     BlockCipher(const byte* simmetric_key, size_t key_size, size_t block_size);
     ~BlockCipher();
     void encrypt(byte pt[], size_t pt_size, byte*& ct, size_t& ct_size, byte* iv = NULL);
@@ -46,6 +47,14 @@ public:
     AES_256_ECB(const byte* simmetric_key) : BlockCipher(simmetric_key, AES_256_KEY_SIZE, AES_256_BLOCK_SIZE) {};
     ~AES_256_ECB() {};
     const EVP_CIPHER* getCipherType() {return EVP_aes_256_ecb();};
+};
+
+class AES_256_CBC : public BlockCipher
+{
+public:
+    AES_256_CBC(const byte* simmetric_key) : BlockCipher(simmetric_key, AES_256_KEY_SIZE, AES_256_BLOCK_SIZE) {};
+    ~AES_256_CBC() {};
+    const EVP_CIPHER* getCipherType() {return EVP_aes_256_cbc();};
 };
 
 #endif

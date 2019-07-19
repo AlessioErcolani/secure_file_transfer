@@ -29,29 +29,69 @@ prepare_message(header_t* header_info, byte pt[], size_t pt_len, BlockCipher* ci
     byte* ct = NULL;
     size_t ct_len = 0;
 
-    //encrypt the plaintext
-    cipher->encrypt(pt, pt_len, ct, ct_len);
+    //generate fresh initialization vector
+    int success = 0;
+    success = RAND_poll();
+    if (!success)
+        throw security_exception("RAND_poll failed");
+    size_t iv_len = cipher->BLOCK_SIZE;
+    byte* iv = new byte[iv_len];
+    success = RAND_bytes(iv, iv_len);
+    if (!success)
+    {
+        delete[] iv;
+        throw security_exception("RAND_bytes failed");
+    }
 
+    //encrypt the plaintext
+    try
+    {
+        cipher->encrypt(pt, pt_len, ct, ct_len, iv);
+    }
+    catch (exception& e)
+    {
+        delete[] iv;
+        throw;
+    }
+    
     //set the correct payload length in the header struct (it is unknown until now)
-    header_info->payload_length = ct_len;
+    header_info->payload_length = iv_len + ct_len;
 
     //prepare the header
     byte* header = prepare_header(header_info, hmac);
 
     //allocate space for the message
     size_t hd_len = HEADER_CONTENT_DIM + hmac->getDigestSize();     //assuming digest size is the same for both header and message
-    msg_len = hd_len + ct_len + hmac->getDigestSize();
+    msg_len = hd_len + iv_len + ct_len + hmac->getDigestSize();
     byte* msg = new byte[msg_len];
 
     //concatenate header and ciphertext
-    memcpy(msg, header, hd_len);
-    memcpy(msg + hd_len, ct, ct_len);
+    //memcpy(msg, header, hd_len);
+    //memcpy(msg + hd_len, ct, ct_len);
+
+    //concatenate header, iv and ciphertext
+    memcpy(msg,                     header,     hd_len);
+    memcpy(msg + hd_len,            iv,         iv_len);
+    memcpy(msg + hd_len + iv_len,   ct,         ct_len);
 
     //compute digest of (header, ciphertext) and concatenate it to ciphertext
-    byte* digest = hmac->digest(msg, hd_len + ct_len);
-    memcpy(msg + hd_len + ct_len, digest, hmac->getDigestSize());
+    byte* digest = NULL;
+    try
+    {
+        digest = hmac->digest(msg, hd_len + iv_len + ct_len);
+        memcpy(msg + hd_len + iv_len + ct_len, digest, hmac->getDigestSize());
+    }
+    catch (exception& e)
+    {
+        delete[] iv;
+        delete[] header;
+        delete[] ct;
+        delete[] msg;
+        throw;
+    }
 
     //free memory
+    delete[] iv;
     delete[] header;
     delete[] digest;
     delete[] ct;
