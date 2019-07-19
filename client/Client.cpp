@@ -697,6 +697,8 @@ read_local_file_list()
 {   
     cout << endl;
     const vector<string>* list = connection_information.at(sd_to_server).file_manager->exploreDirectory();
+    if (list->size() == 0)
+        cout << "\t> the directory is empty" <<endl;
     for(int i = 0; i<list->size(); ++i)
         cout<<"\t> "<<(i+1)<<".\t"<<list->at(i)<<endl;
     cout <<endl;
