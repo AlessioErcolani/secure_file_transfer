@@ -50,9 +50,9 @@ public:
     void writeBlock(const byte* buffer, size_t size);    
     bool isWritingMode();
 
-    bool deleteFile(string file_name);
+    void deleteFile(string file_name);
 
-    bool createDirectory(string directory_name);
+    void createDirectory(string directory_name);
 	
     bool isClosed();
 	void closeFile();

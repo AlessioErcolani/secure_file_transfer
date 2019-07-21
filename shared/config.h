@@ -18,7 +18,7 @@ enum protocol
     RECEIVE_LIST_FILE, 
     ACK_CODE_DELETE,
     RECEIVE_NAME_FILE, 
-    ERROR_CODE =-1
+    ERROR_CODE = -1
 };
 
 #endif

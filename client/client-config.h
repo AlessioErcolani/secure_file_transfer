@@ -10,7 +10,6 @@
 #define PRV_KEY_EXTENSION "_key.pem"
 #define ACK                "certificate received"
 #define RECEIVE_SIGN_HMAC       1
-#define ACK_CERTIFICATE         2
 #define STRING_DIM              100
 #define CLIENT_DIRECTORY_FILES  "./client/files/"
 

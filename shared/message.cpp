@@ -12,7 +12,16 @@ prepare_header(header_t* header_info, hMAC* hmac)
     memcpy(header + CODE_OFFSET,        &header_info->message_code,     sizeof(int));
 
     //compute digest of the header
-    byte* digest = hmac->digest(header, HEADER_CONTENT_DIM);
+    byte* digest = NULL;
+    try
+    {
+        digest = hmac->digest(header, HEADER_CONTENT_DIM);
+    }
+    catch(exception& e)
+    {
+        delete[] header;
+        throw;
+    }
 
     //append header's digest at the end of the header
     memcpy(header + DIGEST_OFFSET,      digest,         hmac->getDigestSize());
@@ -58,16 +67,21 @@ prepare_message(header_t* header_info, byte pt[], size_t pt_len, BlockCipher* ci
     header_info->payload_length = iv_len + ct_len;
 
     //prepare the header
-    byte* header = prepare_header(header_info, hmac);
+    byte* header = NULL;
+    try
+    {
+        header = prepare_header(header_info, hmac);
+    }
+    catch(exception& e)
+    {
+        delete[] iv;
+        throw;
+    }
 
     //allocate space for the message
     size_t hd_len = HEADER_CONTENT_DIM + hmac->getDigestSize();     //assuming digest size is the same for both header and message
     msg_len = hd_len + iv_len + ct_len + hmac->getDigestSize();
     byte* msg = new byte[msg_len];
-
-    //concatenate header and ciphertext
-    //memcpy(msg, header, hd_len);
-    //memcpy(msg + hd_len, ct, ct_len);
 
     //concatenate header, iv and ciphertext
     memcpy(msg,                     header,     hd_len);
@@ -87,6 +101,7 @@ prepare_message(header_t* header_info, byte pt[], size_t pt_len, BlockCipher* ci
         delete[] header;
         delete[] ct;
         delete[] msg;
+        msg_len = 0;
         throw;
     }
 

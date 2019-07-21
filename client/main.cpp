@@ -26,13 +26,9 @@ main()
         c.connectToServer();
         c.start();
     }
-    catch (const invalid_argument& e)
+    catch (exception& e)
     {
-        cerr << e.what() << endl;
-    }
-    catch (const connection_exception& e)
-    {
-        cerr << e.what() << endl;
+        Log::e(e.what()); 
     }
 
     return 0;

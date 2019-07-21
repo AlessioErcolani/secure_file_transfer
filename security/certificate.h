@@ -19,10 +19,10 @@ bool verify_certificate(X509_STORE* store, X509* certificate);
 X509* read_certificate_PEM_from_file(const char* certificate_file);
 X509_CRL* read_crl_PEM(const char* crl_file);
 EVP_PKEY* read_public_key_PEM_from_file(const char* certificate_file);
-X509* read_certificate_PEM_from_memory(byte* certificate_buffer);
 EVP_PKEY* extract_public_key_from_X509(const X509* certificate);
 string get_subject_certificate(X509* certificate);
 byte* cast_certificate_in_DER_format(const char* certificate_name, size_t& certificate_len);
 X509* cast_certificate_from_DER_format(byte buffer[], size_t certificate_len);
+string X509_certificate_to_string(const X509* certificate);
 
 #endif

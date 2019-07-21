@@ -59,7 +59,7 @@ get_subject_certificate(X509* certificate)
     string cut_string = subject.substr(position_in_string + common_name.length());
     position_in_string = cut_string.find("/");
 
-    return cut_string.substr(0,position_in_string - 1);
+    return cut_string.substr(0, position_in_string - 1);
 }
 
 bool
@@ -80,6 +80,7 @@ verify_certificate(X509_STORE* store, X509* certificate)
     {
         string error(ERR_error_string(ERR_get_error(), NULL));
         Log::e(string("X509_STORE_CTX_init() failed: ") + error);
+        X509_STORE_CTX_free(store_ctx);
         return false;
     }
 
@@ -120,29 +121,6 @@ read_certificate_PEM_from_file(const char* certificate_file)
         Log::e("Cannot read certificate PEM file correctly");
 
     return certificate;
-}
-
-X509*
-read_certificate_PEM_from_memory(byte* certificate_buffer)
-{
-  BIO* bio = BIO_new_mem_buf((char *)certificate_buffer, -1);
- 
-  if(!bio) 
-  {
-    Log::e("BIO new_mem_buf failed");
-    return NULL;
-  }
-
-  X509* cert = PEM_read_bio_X509(bio, NULL, 0, NULL);
-  if(!cert)
-  {
-    Log::e("PEM read_bio_X509 failed");
-    BIO_free(bio);
-  }
-
-  BIO_free(bio);
-
-  return cert;
 }
 
 X509_CRL*
@@ -236,4 +214,10 @@ cast_certificate_from_DER_format(byte buffer[], size_t certificate_len )
 {
     return d2i_X509(NULL, (const byte**)&buffer, certificate_len);
 
+}
+
+string
+X509_certificate_to_string(const X509* certificate)
+{
+    return string (X509_NAME_oneline(X509_get_subject_name(certificate), NULL, 0)); 
 }

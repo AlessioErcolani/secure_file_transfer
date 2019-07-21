@@ -71,6 +71,7 @@ encrypt(byte pt[], size_t pt_size, byte*& ct, size_t& ct_size, byte* iv)
         Log::e("cannot update encryption");
         EVP_CIPHER_CTX_free(ctx);
         delete[] ct;
+        ct = NULL;
         throw encryption_exception("cannot update encryption");
     }
     ct_len += ct_len_i;
@@ -81,6 +82,7 @@ encrypt(byte pt[], size_t pt_size, byte*& ct, size_t& ct_size, byte* iv)
         Log::e("cannot finalize encryption");
         EVP_CIPHER_CTX_free(ctx);
         delete[] ct;
+        ct = NULL;
         throw encryption_exception("cannot finalize encryption");
     }
     ct_len += ct_len_i;
@@ -132,6 +134,7 @@ decrypt(byte ct[], size_t ct_size, byte*& pt, size_t& pt_size, byte* iv)
         Log::e("cannot update decryption");
         EVP_CIPHER_CTX_free(ctx);
         delete[] pt;
+        pt = NULL;
         throw decryption_exception ("cannot update decryption");
     }
     dt_len += dt_len_i;
@@ -142,6 +145,7 @@ decrypt(byte ct[], size_t ct_size, byte*& pt, size_t& pt_size, byte* iv)
         Log::e("cannot finalize decryption");
         EVP_CIPHER_CTX_free(ctx);
         delete[] pt;
+        pt = NULL;
         throw decryption_exception ("cannot finalize decryption");
     }
     dt_len += dt_len_i;

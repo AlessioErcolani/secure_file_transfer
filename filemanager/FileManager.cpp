@@ -169,20 +169,20 @@ computePath(string file_name)
 
 }
 
-bool 
+void 
 FileManager::
 deleteFile(string file_name)
 {
     if (!isClosed())
-        return false;
+        throw illegal_mode("impossible to delete an open file");
 
     string path_file = computePath(file_name);
 
-    return (remove(path_file.c_str()) == 0);
-
+    if (remove(path_file.c_str()) != 0)
+        throw error_delete_file(string("error in deleting: ") + file_name);
 }
 
-bool 
+void 
 FileManager::
 createDirectory(string directory_name)
 {
@@ -194,8 +194,7 @@ createDirectory(string directory_name)
 
     if (success != 0)
         if (errno != EEXIST)
-            return false;
-    return true;
+            throw error_create_directory("error creating directory");
 }
 
 void

@@ -19,9 +19,9 @@ class Server : public AbstractHost
 {
     int sd_listener;
     sockaddr_in address;
+    vector<string> users;
     //creation secure connection
-    void on_recv_public_key_client(int sd, byte buffer[], size_t buffer_len);
-    void on_recv_certificate_client(int sd, byte buffer[], size_t buffer_len);
+    void on_recv_public_key_certificate_client(int sd, byte buffer[], size_t buffer_len);
     void on_recv_signature_hmac(int sd, byte buffer[], size_t buffer_len);
 
     //protocolClientServer    
@@ -66,6 +66,7 @@ protected:
         ...
     */
     virtual void onReceive(int sd, unsigned char buffer[], size_t n);
+
 public:
     Server(uint16_t port);
     ~Server();

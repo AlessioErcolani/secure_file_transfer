@@ -26,6 +26,15 @@ struct illegal_mode : public runtime_error
     illegal_mode(string const& msg) : runtime_error(msg) {}
 };
 
+struct error_create_directory : public runtime_error
+{
+    error_create_directory(string const& msg) : runtime_error(msg) {}
+};
+
+struct error_delete_file : public runtime_error
+{
+    error_delete_file(string const& msg) : runtime_error(msg) {}
+};
 
 
 #endif

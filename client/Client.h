@@ -52,7 +52,6 @@ class Client : public AbstractHost
     
     //create secure connection
     void on_recv_sign_hmac(unsigned char buffer[], size_t n);
-    void on_ack_certificate(unsigned char buffer[], size_t n);
 
     //handlerUserCommand
     void read_local_file_list();

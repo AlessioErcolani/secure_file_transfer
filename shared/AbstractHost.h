@@ -3,6 +3,7 @@
 
 #include <map>
 #include <iostream>
+#include <algorithm>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -11,6 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <climits>
 
 #include "../log/log.h"
 #include "../security/BlockCipher.h"
@@ -25,7 +27,7 @@ using namespace std;
 
 int max(int a, int b);
 
-const size_t MAX_PAYLOAD = 1460;
+const size_t MAX_PAYLOAD = 4096;
 
 class AbstractHost
 {
@@ -38,12 +40,10 @@ class AbstractHost
 protected:
     map<int, SessionInformation> connection_information;
     time_t timeout_sec;
-    unsigned char recv_buffer[MAX_PAYLOAD];
- 
+     
     void addFileDescriptor(int fd);
     void removeFileDescriptor(int fd);
     void endLoop();
-    bool is_expected_size(size_t input_size, size_t expected_size){return input_size == expected_size;}
     void session_clear_information(int fd);
     bool socket_is_authenticated(int fd);
     protocol get_message_code(int fd);
@@ -88,9 +88,11 @@ protected:
         want to do with the data they receive.
     */
     virtual void onReceive(int sd, unsigned char buffer[], size_t n) = 0;
+     
+    virtual bool recvFromHost(int sd, unsigned char*& ptr, size_t& recv_bytes);
 
     virtual void sendToHost(int sd, unsigned char* buffer, size_t bytes_to_send);
-    virtual bool recvFromHost(int sd, unsigned char*& ptr, size_t& recv_bytes);
+    
     virtual bool recvMessage(int sd, byte*& pt, size_t& pt_len);
 public:
     AbstractHost(time_t inactivity_sec = 0);

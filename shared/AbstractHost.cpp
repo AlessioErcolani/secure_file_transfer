@@ -17,7 +17,6 @@ AbstractHost(time_t inactivity_sec)
         inactivity_sec = 0;
     }
 
-    memset((void*) recv_buffer, 0, MAX_PAYLOAD);
     end = false;
     max_fd = -1;
     fd_i = 0;
@@ -106,27 +105,34 @@ bool
 AbstractHost::
 recvFromHost(int sd, unsigned char*& ptr, size_t& recv_bytes)
 {
+
     ptr = NULL;
     recv_bytes = 0;
+    ssize_t bytes_received = 0;
 
-    ssize_t bytes_received = recv(sd, (void*) recv_buffer, MAX_PAYLOAD, 0);
-    if (bytes_received == -1)
-    {
-        Log::e(string("could not receive data successfully: ") + strerror(errno));
-        throw recv_error(strerror(errno));
-    }
-    else if (bytes_received == 0)
+    size_t message_len = 0;
+    
+    bytes_received = recv(sd, (void*) &message_len, sizeof(size_t), MSG_WAITALL);
+    if (bytes_received == 0)
     {
         Log::i("remote socket has been closed");
         return false;
     }
-    
-    recv_bytes = (size_t) bytes_received;       //recv_bytes == expected_bytes_map[sd]
-    ptr = new unsigned char[recv_bytes];        //allocate space
-    memcpy(ptr, recv_buffer, recv_bytes);       //copy data
-    memset((void*) recv_buffer, 0, recv_bytes); //clear recv_buffer (for security)
 
-    //Log::i(TO_STR("data received (" << bytes_received << " bytes)"));
+    if (message_len > MAX_PAYLOAD)
+        throw runtime_error("impossible to allocate");
+
+    byte* payload = new byte[message_len];
+    bytes_received = recv(sd, (void*) payload, message_len, MSG_WAITALL);
+    if (bytes_received == 0)
+    {
+        Log::i("remote socket has been closed");
+        delete[] payload;
+        return false;
+    }
+
+    recv_bytes = message_len;
+    ptr = payload;
 
     return true;
 }
@@ -157,12 +163,17 @@ recvMessage(int sd, byte*& pt, size_t& pt_len)
         delete[] header;
         return false;
     }
-
-//Log::dump(TO_STR("header (" << hd_len << ") bytes"), header, hd_len);
-    
+   
     //check for header corruption
-    //TODO: handle exception
-    digests_match = session->hmac->check_digest(header + DIGEST_OFFSET, header, HEADER_CONTENT_DIM);
+    try
+    {
+        digests_match = session->hmac->check_digest(header + DIGEST_OFFSET, header, HEADER_CONTENT_DIM);
+    }
+    catch(exception& e)
+    {
+        delete[] header;
+        throw;
+    }
     if (!digests_match)
     {
         delete[] header;
@@ -183,6 +194,10 @@ recvMessage(int sd, byte*& pt, size_t& pt_len)
     //get payload length
     size_t pl_len = 0;
     memcpy(&pl_len, header + PAYLOAD_LEN_OFFSET, sizeof(size_t));
+
+    //check for huge allocation
+    if (pl_len > MAX_PAYLOAD)
+        throw runtime_error("impossible to allocate");
     
     //prepare space for header and payload (to compute digest later)
     byte* header_payload = new byte[hd_len + pl_len];       //create buffer
@@ -213,8 +228,17 @@ recvMessage(int sd, byte*& pt, size_t& pt_len)
     }
 
     //check for message corruption
-    //TODO: handle exception
-    digests_match = session->hmac->check_digest(digest, header_payload, hd_len + pl_len);
+    try
+    {
+        digests_match = session->hmac->check_digest(digest, header_payload, hd_len + pl_len);
+    }
+    catch(exception& e)
+    {
+        delete[] header;
+        delete[] header_payload;
+        delete[] digest;
+        throw;
+    }
     if (!digests_match)
     {
         delete[] header;
@@ -253,35 +277,39 @@ AbstractHost::
 onReadySocket(int sd)
 {
     unsigned char* ptr = NULL;
-    size_t recv_bytes = 0;   
-    
-    if (socket_is_authenticated(sd))
-    {
-        try
+    size_t recv_bytes = 0;
+
+    try
+    {      
+        if (socket_is_authenticated(sd))
         {
             if(!recvMessage(sd, ptr, recv_bytes))
             {
                 onDisconnection(sd); 
                 return;           
+            }            
+        }
+        else
+        {
+            if (!recvFromHost(sd, ptr, recv_bytes))
+            {
+                onDisconnection(sd); 
+                return;
             }
         }
-        catch (exception& e)
-        {
-            Log::e(e.what());
-            delete[] ptr;
-            onDisconnection(sd); 
-            return;
-        }
+        connection_information[sd].packet_number_received++;
+        if (connection_information[sd].packet_number_received > UINT_MAX) 
+            throw security_exception("session too long!");
+
     }
-    else
+    catch (exception& e)
     {
-        if (!recvFromHost(sd, ptr, recv_bytes))
-        {
-            onDisconnection(sd); 
-            return;
-        }
+        Log::e(e.what());
+        if (ptr)
+            delete[] ptr;
+        onDisconnection(sd); 
+        return;
     }
-    connection_information[sd].packet_number_received++;
     onReceive(sd, ptr, recv_bytes);     
 }
 
@@ -371,8 +399,7 @@ protocol
 AbstractHost::
 get_message_code(int fd)
 {   
-    return connection_information.at(fd).last_command;   
-
+    return connection_information.at(fd).last_command;  
 }
 
 void 
@@ -383,6 +410,9 @@ recovery(int fd)
 
     bool open_in_write_mode = false;
     string file_name_open;
+    
+    if (!session->file_manager)
+        return;
 
     if (!session->file_manager->isClosed())
     {   
@@ -395,7 +425,13 @@ recovery(int fd)
     if (open_in_write_mode)
     {
         Log::i(TO_STR("Deleting: " << file_name_open).c_str());
-        if(!session->file_manager->deleteFile(file_name_open))
-            Log::e(TO_STR("Error in deleting: " << file_name_open).c_str());
+        try
+        {
+            session->file_manager->deleteFile(file_name_open);
+        }
+        catch(exception& e)
+        {
+            Log::e(TO_STR("Error in deleting: " << file_name_open));
+        }
     }
 }

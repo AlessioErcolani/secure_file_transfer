@@ -38,7 +38,8 @@ Client(string client, string server_ip, uint16_t port, time_t inactivity_sec) : 
 Client::
 ~Client()
 {
-    delete dh;
+    if (dh)
+        delete dh;
 }
 
 void
@@ -116,20 +117,42 @@ onConnection(int sd)
     X509_CRL_free(crl);
     X509_STORE_free(store);
 
+    size_t certificate_len = 0;
+    
+    string path = string(PATH_CERTIFICATE) + client_name + string (CERTIFICATE_EXTENSION);
+    byte* certificate_bin = cast_certificate_in_DER_format(path.c_str(), certificate_len);
+    if (!certificate_bin)   
+        throw security_exception("impossible to read your certificate");
+
+    size_t pub_key_dh_len = dh->get_key_length();
+    size_t dimension_to_send = pub_key_dh_len + certificate_len;
+    size_t msg_len = dimension_to_send + sizeof(size_t);    
+
     byte* pub_key_dh = dh->get_public_key();
+
+    byte* msg = new byte[msg_len];
+
+    memcpy(msg,                                     &dimension_to_send,         sizeof(size_t));
+    memcpy(msg + sizeof(size_t),                    pub_key_dh,                 pub_key_dh_len);
+    memcpy(msg + sizeof(size_t) + pub_key_dh_len,   certificate_bin,            certificate_len);
+    
     try
     {
-        sendToHost(sd_to_server, pub_key_dh, dh->get_key_length());
+        sendToHost(sd_to_server, msg, msg_len);
     }
     catch(exception& e)
     {
+        delete[] msg;
         delete[] pub_key_dh;
+        delete[] certificate_bin;
         throw;
     }
-    
-    delete[] pub_key_dh;
 
-    Log::dump(TO_STR("Message 1 (" << pub_key_dh << " bytes)").c_str(), pub_key_dh, dh->get_key_length());
+    Log::dump(TO_STR("Message 1 (" << msg_len << " bytes)").c_str(), msg, msg_len);
+    
+    delete[] msg;
+    delete[] pub_key_dh;
+    delete[] certificate_bin;
 
     connection_information.at(sd_to_server).file_manager = new FileManager(CLIENT_DIRECTORY_FILES);
 }
@@ -138,45 +161,53 @@ void
 Client::
 onStdInput()
 {
-    string cmd;
-    getline(cin, cmd);
-    
-    switch (decode_command(cmd))
+    try
     {
-        case HELP:
-            print_commands();
-            break;
+        string cmd;
+        getline(cin, cmd);
+        
+        switch (decode_command(cmd))
+        {
+            case HELP:
+                print_commands();
+                break;
 
-        case CLOSE:
-            onDisconnection(sd_to_server);
-            break;
+            case CLOSE:
+                onDisconnection(sd_to_server);
+                break;
 
-        case READ_LOCAL_FILE_LIST:
-            read_local_file_list();
-            break;
+            case READ_LOCAL_FILE_LIST:
+                read_local_file_list();
+                break;
 
-        case UPLOAD_FILE:
-            send_file(cmd.substr(5));
-            break;
+            case UPLOAD_FILE:
+                send_file(cmd.substr(7));
+                break;
 
-        case READ_REMOTE_FILE_LIST:
-            read_remote_file_list();
-            break;
+            case READ_REMOTE_FILE_LIST:
+                read_remote_file_list();
+                break;
 
-        case REMOVE_LOCAL_FILE:
-            delete_local_file(cmd.substr(8));
-            break;
+            case REMOVE_LOCAL_FILE:
+                delete_local_file(cmd.substr(8));
+                break;
 
-        case REMOVE_REMOTE_FILE:
-            delete_remote_file(cmd.substr(8));
-            break;
+            case REMOVE_REMOTE_FILE:
+                delete_remote_file(cmd.substr(8));
+                break;
 
-        case DOWNLOAD_FILE:
-            receive_file(cmd.substr(8));
-            break;
+            case DOWNLOAD_FILE:
+                receive_file(cmd.substr(9));
+                break;
 
-        default:
-            undefined_command();
+            default:
+                undefined_command();
+        }
+    }
+    catch(exception& e)
+    {
+        Log::e(e.what());
+        onDisconnection(sd_to_server);
     }
 }
 
@@ -191,65 +222,54 @@ void
 Client::
 onReceive(int sd, unsigned char buffer[], size_t n)
 {
-    SessionInformation* session = &connection_information[sd];
-    if (session->initialization_phase_completed)
+    try
     {
-        switch(get_message_code(sd))
+        SessionInformation* session = &connection_information[sd];
+        if (socket_is_authenticated(sd))
         {
-            case ACK_CODE_SEND:
-                on_ack_send(string((char*)buffer));
-                break;
-
-            case RECEIVE_LIST_FILE:
-                on_receive_list_file(buffer, n);
-                break;
-
-            case ERROR_CODE:
-                on_error(string((char*)buffer));
-                break;
-
-            case ACK_CODE_DELETE:
-                on_ack_delete(string((char*)buffer));
-                break;
-
-            case SEND_NAME_FILE:
-                on_send_name_file(string((char*)buffer));
-                break;
-
-            case SEND_FILE_CHUNCK:
-                on_send_file_chunck(buffer, n);
-                break;
-
-            case LAST_BLOCK:
-                on_send_last_block(buffer, n);
-                break;
-        }
-    }
-    else
-    {
-        try
-        {
-            switch(session->packet_number_received)
+            switch(get_message_code(sd))
             {
-                case RECEIVE_SIGN_HMAC:
-                    on_recv_sign_hmac(buffer, n);
+                case ACK_CODE_SEND:
+                    on_ack_send(string((char*)buffer));
                     break;
 
-                case ACK_CERTIFICATE:
-                    on_ack_certificate(buffer, n);
+                case RECEIVE_LIST_FILE:
+                    on_receive_list_file(buffer, n);
                     break;
-                
-                default:
-                    Log::e("I shouldn't be here !!!");
+
+                case ERROR_CODE:
+                    on_error(string((char*)buffer));
+                    break;
+
+                case ACK_CODE_DELETE:
+                    on_ack_delete(string((char*)buffer));
+                    break;
+
+                case SEND_NAME_FILE:
+                    on_send_name_file(string((char*)buffer));
+                    break;
+
+                case SEND_FILE_CHUNCK:
+                    on_send_file_chunck(buffer, n);
+                    break;
+
+                case LAST_BLOCK:
+                    on_send_last_block(buffer, n);
+                    break;
             }
         }
-        catch(exception& e)
+        else
         {
-            Log::e(e.what());
-            delete[] buffer;
-            onDisconnection(sd_to_server);
-            return;
-        }        
+            if (session->packet_number_received == RECEIVE_SIGN_HMAC)
+                on_recv_sign_hmac(buffer, n);
+            else
+                throw security_exception("packet number unexpected");
+        }
+    }
+    catch(exception& e)
+    {
+        Log::e(e.what());
+        onDisconnection(sd_to_server);
     }
 
     delete[] buffer;
@@ -271,7 +291,7 @@ decode_command(string cmd)
     if (cmd.compare("llist") == 0)
         return READ_LOCAL_FILE_LIST;
 
-    if ((cmd.substr(0,5)).compare("send ") == 0)
+    if ((cmd.substr(0,7)).compare("upload ") == 0)
         return UPLOAD_FILE;
 
     if ((cmd.substr(0,8)).compare("ldelete ") == 0)
@@ -283,7 +303,7 @@ decode_command(string cmd)
     if (cmd.compare("close") == 0)
         return CLOSE;
 
-    if ((cmd.substr(0,8)).compare("receive ") == 0)
+    if ((cmd.substr(0,9)).compare("download ") == 0)
         return DOWNLOAD_FILE;
 
     return UNKNOWN;
@@ -295,20 +315,20 @@ print_commands()
 {
     char commands[][STRING_DIM] = 
     {
-        "llist:\t\tlocal files list",
-        "rlist:\t\tremote files list",
-        "send <file_name>:\tupload the file",
-        "receive <file_name>:\tdownload the file",
-        "ldelete <file_name>:\tdelete the file locally",
-        "rdelete <file_name>:\tdelete the file on the server",
-        "help:\t\t\tprints the commands explanation",
-        "close:\t\tclose the connection\n" 
+        "llist\t\t\t\t:local files list",
+        "rlist\t\t\t\t:remote files list",
+        "upload\t<file_name>\t:upload the file",
+        "download\t<file_name>\t:download the file",
+        "ldelete\t<file_name>\t:delete the file locally",
+        "rdelete\t<file_name>\t:delete the file on the server",
+        "help\t\t\t\t:prints the commands explanation",
+        "close\t\t\t\t:close the connection\n" 
     };
 
-    cout<<"\nSECURE FILE TRANSFER:\n"<<endl;
+    cout << "\nSECURE FILE TRANSFER:\n" << endl;
 
-    for (int i = 0; i < sizeof(commands)/STRING_DIM; ++i)    
-        cout<<"\t> "<<commands[i]<<endl;
+    for (int i = 0; i < sizeof(commands) / STRING_DIM; ++i)    
+        cout << "\t> " << commands[i] << endl;
 
 }
 
@@ -332,10 +352,14 @@ on_recv_sign_hmac(unsigned char buffer[], size_t n)
     signature_len = (size_t) EVP_PKEY_size(server_public_key);
 
     byte* msg_to_verify = new byte [key_length*2];
+    byte* my_dh_pub_key = dh->get_public_key();
 
     //msg composed Y_server||SIGN_server(Y_client||Y_server)||HMAC_sessionKey(Sign)
-    memcpy(msg_to_verify, dh->get_public_key(), key_length);
-    memcpy(msg_to_verify + key_length, buffer, key_length);
+    memcpy(msg_to_verify,                   my_dh_pub_key,   key_length);
+    memcpy(msg_to_verify + key_length,      buffer,                 key_length);
+
+    delete[] my_dh_pub_key;
+
     bool success = false;
     try
     {
@@ -358,8 +382,7 @@ on_recv_sign_hmac(unsigned char buffer[], size_t n)
     }
 
     EVP_PKEY_free(server_public_key);
-    delete pen;
-
+  
     byte* session_key = dh->compute_shared_key(buffer);
 
     Hash* hash = new Hash_SHA512();
@@ -372,11 +395,11 @@ on_recv_sign_hmac(unsigned char buffer[], size_t n)
     {
         delete[] session_key;
         delete hash;
-        EVP_PKEY_free(server_public_key);
-        throw security_exception(e.what());
+        delete pen;
+        throw;
     }
 
-    size_t half_digest_session_key_len = hash->getDigestSize()/2;
+    size_t half_digest_session_key_len = hash->getDigestSize() / 2;
 
     session->hmac = new SHA256_HMAC(digest_session_key);                                    //lsb
     session->cipher = new AES_256_CBC(digest_session_key + half_digest_session_key_len);    //msb
@@ -389,73 +412,42 @@ on_recv_sign_hmac(unsigned char buffer[], size_t n)
     delete[] session_key;
     delete[] digest_session_key;
     delete hash;
-     
-    success = session->hmac->check_digest(buffer + key_length + signature_len, buffer + key_length, signature_len);
+    
+    try
+    {
+        success = session->hmac->check_digest(buffer + key_length + signature_len, buffer + key_length, signature_len);
+    }
+    catch(exception& e)
+    {
+        delete pen;
+        delete[] msg_to_verify;
+        throw;
+    }
     if(!success)
     {
+        delete pen;
         delete[] msg_to_verify;
         throw security_exception("invalid HMAC");
     }
 
-    size_t certificate_len = 0;
-    
-    string path = string(PATH_CERTIFICATE) + client_name + string (CERTIFICATE_EXTENSION);
-    byte* certificate_bin = cast_certificate_in_DER_format(path.c_str(), certificate_len);
-    if (!certificate_bin)
-    {
-        delete[] msg_to_verify;
-        throw security_exception("impossible to read your certificate");
-    }
-    
-    try
-    {
-        sendToHost(sd_to_server, certificate_bin, certificate_len);
-    }
-    catch(exception& e)
-    {
-        delete[] certificate_bin;
-        delete[] msg_to_verify;
-        throw;
-    }
+    byte* key_concatenated = msg_to_verify;
 
-    delete[] certificate_bin;
-
-    session->key_concatenated = msg_to_verify;
-
-}
-
-void 
-Client::
-on_ack_certificate(unsigned char buffer[], size_t n)
-{
-    size_t key_length = dh->get_key_length();
-    size_t signature_len = 0;
-
-    SessionInformation* session = &connection_information[sd_to_server];
-
-    Log::dump(TO_STR("Message 4 (" << n << " bytes)").c_str(), buffer, n);
-    
-    string expected_msg(ACK);
-    string recv_msg((char*)buffer);
-    
-    if(expected_msg.compare(recv_msg))
-        throw security_exception("unexpected message");           
-    
     string path(string(PATH_CERTIFICATE) + client_name + string(PRV_KEY_EXTENSION));
 
     EVP_PKEY* private_key = read_private_key_PEM(path.c_str());
-    if (!private_key)    
+    if (!private_key)
+    {   
+        delete pen;
         throw security_exception("impossible to read your private key");
-    
+    }
+
     signature_len = (size_t) EVP_PKEY_size(private_key);
     
-    DigitalSignature* pen = new SHA256_DigitalSignature();
-
     byte* signature = NULL;
     byte* computed_digest = NULL;
     try
     {
-        signature = pen->sign(session->key_concatenated, key_length*2, private_key); 
+        signature = pen->sign(key_concatenated, key_length * 2, private_key); 
 
         computed_digest = session->hmac->digest(signature, signature_len);
     }
@@ -474,18 +466,20 @@ on_ack_certificate(unsigned char buffer[], size_t n)
     delete pen;
 
     size_t digest_size = session->hmac->getDigestSize();
-    size_t msg_len = signature_len + digest_size;
+    size_t dimension_to_send = signature_len + digest_size;
+    size_t msg_len = dimension_to_send + sizeof(size_t);
 
-    //msg SIGN_client(Y_client||Y_server)||HMAC(sign)_sessionKey
-    byte* msg = new byte[msg_len];         
-    memcpy(msg, signature, signature_len);
-    memcpy(msg + signature_len, computed_digest, digest_size);
+    //dim||SIGN_client(Y_client||Y_server)||HMAC(sign)_sessionKey
+    byte* msg = new byte[msg_len]; 
+    memcpy(msg,                                     &dimension_to_send,         sizeof(size_t));        
+    memcpy(msg +  sizeof(size_t),                   signature,                  signature_len);
+    memcpy(msg +  sizeof(size_t) + signature_len,   computed_digest,            digest_size);
 
-    Log::dump(TO_STR("Message 5 (" << msg_len << " bytes)").c_str(), msg, msg_len);
+    Log::dump(TO_STR("Message 3 (" << msg_len << " bytes)").c_str(), msg, msg_len);
 
     try
     {
-        sendToHost(sd_to_server,msg,msg_len);
+        sendToHost(sd_to_server, msg, msg_len);
     }
     catch(exception& e)
     {
@@ -498,15 +492,12 @@ on_ack_certificate(unsigned char buffer[], size_t n)
     delete[] signature;
     delete[] computed_digest;
     delete[] msg;    
-
-    delete[] session->key_concatenated;
-    session->key_concatenated = NULL;
     
     session->initialization_phase_completed = true;
     Log::i("Secure connection established!");
 
     print_commands();
-}
+} 
 
 void 
 Client::
@@ -519,15 +510,8 @@ on_ack_send(string file_name)
     bool next_block_available = false;
 
     SessionInformation* session = &connection_information.at(sd_to_server);
-    try
-    {
-    session->file_manager->openFileReadMode(file_name);
-    } 
-    catch (const exception &e) 
-    { 
-        Log::e(e.what());
-        return;
-    }
+    
+    session->file_manager->openFileReadMode(file_name);    
 
     cout << "\n\tstart sending: " << file_name << endl;;
 
@@ -557,15 +541,14 @@ on_ack_send(string file_name)
         session->file_manager->closeFile();
         cout << "\tfinish sending: " << file_name << "\n" << endl;;
     }
-    catch(const exception &e)
+    catch (exception& e)
     {
-        Log::e(e.what());
-        Log::e(TO_STR("Impossible to send: " <<file_name));
+        Log::e(TO_STR("Impossible to send: " << file_name));
         if (msg)
             delete[] msg;
         if (pt)
             delete[] pt;
-        onDisconnection(sd_to_server);
+        throw;
     }    
 }
 
@@ -583,8 +566,15 @@ read_remote_file_list()
 
     header_t header_info(session->packet_number_sent, pt_len, ASK_LIST_FILE);
     msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
-    sendToHost(sd_to_server, msg, msg_len);   
-
+    try
+    {
+        sendToHost(sd_to_server, msg, msg_len); 
+    }
+    catch(exception& e)
+    {
+        delete[] msg;
+        throw;
+    }
     delete[] msg;
 }
 
@@ -592,7 +582,7 @@ void
 Client::
 on_receive_list_file(unsigned char buffer[], size_t buffer_len)
 {
-    cout << "\nfiles on the server: \n" <<endl;
+    cout << "\nfiles on the server: \n" << endl;
 
     int index = 1;
 
@@ -601,12 +591,12 @@ on_receive_list_file(unsigned char buffer[], size_t buffer_len)
     while (iterator != end)
     {
         unsigned short string_len;
-        memcpy(&string_len, iterator, sizeof(unsigned short));
+        memcpy(&string_len,     iterator,   sizeof(unsigned short));
         iterator += sizeof(unsigned short);
         char* file_name = new char[string_len];
-        memcpy(file_name, iterator, string_len);
+        memcpy(file_name,       iterator,   string_len);
         iterator += string_len;
-        cout<<"\t> "<<index<<".\t"<<file_name<<endl;
+        cout << "\t> " << index << ".\t" << file_name << endl;
         delete[] file_name;
         index++;
     }
@@ -622,18 +612,21 @@ delete_local_file(string file_name)
     bool success = session->file_manager->isPresentFile(file_name);
     if (!success)
     {
-        cerr<<"\n\t> file not present\n"<<endl;
+        cout << "\n\t> file not present\n" << endl;
         return;
     }
 
-    success = session->file_manager->deleteFile(file_name);
-
-    if (!success)
+    try
     {
-        cerr<<"\n\t> error in delete the file\n"<<endl;
-        return;
+        session->file_manager->deleteFile(file_name);  
     }
-    cout<<"\n\t> file successfully deleted\n"<<endl;
+    catch(exception& e)
+    {
+        cerr << "\n\t> problem in deleting file\n" << endl;
+        return;
+    }     
+
+    cout << "\n\t> file successfully deleted\n" << endl;
 }
 
 void 
@@ -645,15 +638,25 @@ delete_remote_file(string file_name)
     byte* msg = NULL;
     size_t msg_len = 0;
 
-    size_t pt_len = file_name.size()+1;
+    size_t pt_len = file_name.size() + 1;
     byte* pt = new byte[pt_len];
-    memcpy(pt,(void*)file_name.c_str(),pt_len);    
+
+    memcpy(pt, (void*)file_name.c_str(), pt_len);    
 
     header_t header_info(session->packet_number_sent, pt_len, DELETE_FILE);    //note: pt_len will be overwritten with the actual payload length
 
-    msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
-
-    sendToHost(sd_to_server, msg, msg_len);
+    try
+    {
+        msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
+        sendToHost(sd_to_server, msg, msg_len);
+    }
+    catch(exception& e)
+    {
+        delete[] pt;
+        if (msg)
+            delete[] msg;
+        throw;
+    }
 
     delete[] msg;
     delete[] pt;
@@ -663,7 +666,7 @@ void
 Client::
 on_error(string message)
 {
-    cout<<"\n\tServer > " << message << "\n" << endl;
+    cout << "\n\tServer > " << message << "\n" << endl;
 }
 
 void 
@@ -685,6 +688,7 @@ void
 Client::
 onDisconnection(int sd)
 {
+    Log::i("Disconnecting");
     recovery(sd_to_server);
     session_clear_information(sd_to_server);
     AbstractHost::onDisconnection(sd_to_server);
@@ -698,45 +702,53 @@ read_local_file_list()
     cout << endl;
     const vector<string>* list = connection_information.at(sd_to_server).file_manager->exploreDirectory();
     if (list->size() == 0)
-        cout << "\t> the directory is empty" <<endl;
-    for(int i = 0; i<list->size(); ++i)
-        cout<<"\t> "<<(i+1)<<".\t"<<list->at(i)<<endl;
-    cout <<endl;
+        cout << "\t> the directory is empty" << endl;
+    for(int i = 0; i < list->size(); ++i)
+        cout << "\t> " << (i + 1) << ".\t" << list->at(i) << endl;
+    cout << endl;
 }
 
 void 
 Client::
 send_file(string file_name)
 {
-    SessionInformation* session = &connection_information[sd_to_server];
+    SessionInformation* session = &connection_information.at(sd_to_server);
 
     if(!session->file_manager->isPresentFile(file_name))
     {
-        cerr << "\t> file not present\n" << endl;;
+        cout << "\n\t> file not present\n" << endl;;
         return;
     }
 
     byte* msg = NULL;
     size_t msg_len = 0;
 
-    size_t pt_len = file_name.size()+1;
+    size_t pt_len = file_name.size() + 1;
     byte* pt = new byte[pt_len];
-    memcpy(pt,(void*)file_name.c_str(),pt_len);    
+    memcpy(pt, (void*)file_name.c_str(), pt_len);    
 
     header_t header_info(session->packet_number_sent, pt_len, SEND_NAME_FILE);                  //note: pt_len will be overwritten with the actual payload length
 
-    msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
-
-    sendToHost(sd_to_server, msg, msg_len);
+    try
+    {
+        msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
+        sendToHost(sd_to_server, msg, msg_len);
+    }
+    catch(exception& e)
+    {
+        delete[] pt;
+        if (msg)
+            delete[] msg;
+        throw;
+    }
 
     delete[] msg;
-    delete[] pt;
-    
+    delete[] pt;    
 }
 
 void 
 Client::
-receive_file (string file_name)
+receive_file(string file_name)
 {
     SessionInformation* session = &connection_information.at(sd_to_server);
 
@@ -765,9 +777,18 @@ receive_file (string file_name)
     memcpy(pt, file_name.c_str(), pt_len);
 
     header_t header_info(session->packet_number_sent, pt_len, RECEIVE_NAME_FILE);   //note: pt_len will be overwritten with the actual payload length
-    msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
-
-    sendToHost(sd_to_server, msg, msg_len);
+    try
+    {
+        msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
+        sendToHost(sd_to_server, msg, msg_len);
+    }
+    catch(exception& e)
+    {
+        delete[] pt;
+        if (msg)
+            delete[] msg;
+        throw;
+    }
 
     delete[] msg;
     delete[] pt;
@@ -786,39 +807,30 @@ on_send_name_file(string file_name)
 
     bool file_already_present = session->file_manager->isPresentFile(file_name);
 
-    if (file_already_present)
-    {
-        bool success = session->file_manager->deleteFile(file_name);
-        if (!success)
-            {
-                cerr << "\n\terror on deleting the old version of the file\n" << endl;
-                return;
-            }         
-    }
+    if (file_already_present) 
+        session->file_manager->deleteFile(file_name);
 
-    try
-    {
-        session->file_manager->openFileWriteMode(file_name);
-    }
-    catch(exception& e)
-    {
-        cerr << "\n\terror on opening the file\n" << endl;
-        return;
-    }
+    session->file_manager->openFileWriteMode(file_name);
 
-    pt_len = file_name.length()+1;
+    pt_len = file_name.length() + 1;
     pt = new byte[pt_len];
     memcpy(pt, file_name.c_str(), pt_len);
     header_t header_info(session->packet_number_sent, pt_len, ACK_CODE_SEND);                   //note: pt_len will be overwritten with the actual payload length
-    msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
-
-    sendToHost(sd_to_server, msg, msg_len);
-
+    try
+    {
+        msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
+        sendToHost(sd_to_server, msg, msg_len);
+    }
+    catch(exception& e)
+    {
+        delete[] pt;
+        if (msg)
+            delete[] msg;
+    }
     delete[] msg;
     delete[] pt;
 
-    cout<<"\n\tstart receiving: " << file_name << endl;
-
+    cout << "\n\tstart receiving: " << file_name << endl;
 }
 
 void 
@@ -827,19 +839,7 @@ on_send_file_chunck(byte buffer[], size_t buffer_len)
 {
     SessionInformation* session = &connection_information.at(sd_to_server);
 
-    try
-    {
-        session->file_manager->writeBlock(buffer, buffer_len);
-    }
-    catch(exception& e)
-    {
-        Log::e(e.what());
-        recovery(sd_to_server);
-        session_clear_information(sd_to_server);
-        AbstractHost::onDisconnection(sd_to_server);
-
-    }
-
+    session->file_manager->writeBlock(buffer, buffer_len);                  //errors handle upper level 
 }
 
 void
@@ -847,8 +847,8 @@ Client::
 on_send_last_block(byte*buffer, size_t buffer_len)
 {
     SessionInformation* session = &connection_information.at(sd_to_server);
-    on_send_file_chunck(buffer, buffer_len); 
+    on_send_file_chunck(buffer, buffer_len);                                 //errors handles upper level  
     string file_name = session->file_manager->getNameFileOpen();  
     session->file_manager->closeFile();
-    cout<<"\tfinish receiving: " << file_name <<"\t\n" << endl;
+    cout << "\tfinish receiving: " << file_name << "\t\n" << endl;
 }
