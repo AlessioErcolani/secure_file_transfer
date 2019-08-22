@@ -7,6 +7,7 @@
 #include "../shared/AbstractHost.h"
 #include "../shared/message.h"
 #include "../filemanager/FileManager.h"
+#include "../security/Sanitizer.h"
 #include "../security/BlockCipher.h"
 #include "../security/HMAC.h"
 #include "../security/certificate.h"
