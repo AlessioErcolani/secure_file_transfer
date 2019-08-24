@@ -20,11 +20,16 @@ using namespace std;
 
 class Client : public AbstractHost
 {
+    string client_name;
 
     sockaddr_in server_address;
     int sd_to_server;
-    string client_name;
+
     DiffieHellman* dh;
+
+    X509* ca_certificate;
+    X509_CRL* crl;
+    X509_STORE* store;
     
     /**     virtual void onStdInput():
         ...

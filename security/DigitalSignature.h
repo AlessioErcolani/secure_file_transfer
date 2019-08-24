@@ -13,6 +13,8 @@
 
 using namespace std;
 
+#define SIGN_SIZE (2048/8);
+
 class DigitalSignature
 {
 public:

@@ -210,7 +210,7 @@ cast_certificate_in_DER_format(const char* certificate_name, size_t& certificate
 }
 
 X509*
-cast_certificate_from_DER_format(byte buffer[], size_t certificate_len )
+cast_certificate_from_DER_format(byte buffer[], size_t certificate_len)
 {
     return d2i_X509(NULL, (const byte**)&buffer, certificate_len);
 
@@ -219,5 +219,5 @@ cast_certificate_from_DER_format(byte buffer[], size_t certificate_len )
 string
 X509_certificate_to_string(const X509* certificate)
 {
-    return string (X509_NAME_oneline(X509_get_subject_name(certificate), NULL, 0)); 
+    return string(X509_NAME_oneline(X509_get_subject_name(certificate), NULL, 0)); 
 }

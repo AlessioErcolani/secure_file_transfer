@@ -32,6 +32,35 @@ Client(string client, string server_ip, uint16_t port, time_t inactivity_sec) : 
 
     dh = new DiffieHellman();
     client_name = client;
+
+    //read CA's certificate
+    ca_certificate = read_certificate_PEM_from_file(CA_CERTIFICATE_FILE);
+    if (!ca_certificate)
+    {
+        Log::e("impossible to read CA's certificate");
+        exit(1);
+    }
+
+    //read CRL
+    crl = read_crl_PEM(CRL_FILE);
+    if (!crl)
+    {
+        X509_free(ca_certificate);
+        Log::e("impossible to read CRL");
+        exit(1);
+    }
+
+    Log::i("CA's certificate and CRL read");
+
+    //build a store
+    store = build_store(ca_certificate, crl);
+    if (!store)
+    {
+        X509_free(ca_certificate);
+        X509_CRL_free(crl);
+        Log::e("impossible to build a store");
+        exit(1);
+    }
    
 }
 
@@ -40,6 +69,10 @@ Client::
 {
     if (dh)
         delete dh;
+
+    X509_free(ca_certificate);
+    X509_CRL_free(crl);
+    X509_STORE_free(store);
 }
 
 void
@@ -62,8 +95,8 @@ connectToServer()
         throw connection_exception(strerror(errno));
     }
 
+    Log::i("Successfully connected to server");
     onConnection(sd);
-    Log::i("connected successfully to server");
 }
 
 void
@@ -72,61 +105,18 @@ onConnection(int sd)
 {
     Log::i("Creating a secure connection...");
     sd_to_server = sd;
-    AbstractHost::onConnection(sd);    
-
-    X509* ca_certificate = read_certificate_PEM_from_file(CA_CERTIFICATE_FILE);
-    if (!ca_certificate)
-        throw security_exception("impossibile to read ca certificate");
-
-    X509_CRL* crl = read_crl_PEM(CRL_FILE);
-    if (!crl)
-    {
-        X509_free(ca_certificate);
-        throw security_exception("impossibile to read crl");
-    }
-
-    X509_STORE* store = build_store(ca_certificate, crl);
-    if (!store)
-    {
-        X509_free(ca_certificate);
-        X509_CRL_free(crl);
-        throw security_exception("impossibile to build a store");
-    }
-
-    X509* server_certificate = read_certificate_PEM_from_file(SERVER_CERTIFICATE_FILE);
-    if (!server_certificate)
-    {
-        X509_free(ca_certificate);
-        X509_CRL_free(crl);
-        X509_STORE_free(store);
-        throw security_exception("impossible to read server certificate");
-    }
-
-    if (!verify_certificate(store, server_certificate))
-    {
-        Log::e("server certificate not valid");
-        X509_free(server_certificate);
-        X509_free(ca_certificate);
-        X509_CRL_free(crl);
-        X509_STORE_free(store);
-        throw security_exception("server certificate not valid");
-    }
-
-    X509_free(server_certificate);
-    X509_free(ca_certificate);
-    X509_CRL_free(crl);
-    X509_STORE_free(store);
+    AbstractHost::onConnection(sd);
 
     size_t certificate_len = 0;
     
-    string path = string(PATH_CERTIFICATE) + client_name + string (CERTIFICATE_EXTENSION);
+    string path = string(PATH_CERTIFICATE) + client_name + string(CERTIFICATE_EXTENSION);
     byte* certificate_bin = cast_certificate_in_DER_format(path.c_str(), certificate_len);
     if (!certificate_bin)   
         throw security_exception("impossible to read your certificate");
 
     size_t pub_key_dh_len = dh->get_key_length();
     size_t dimension_to_send = pub_key_dh_len + certificate_len;
-    size_t msg_len = dimension_to_send + sizeof(size_t);    
+    size_t msg_len = dimension_to_send + sizeof(size_t);
 
     byte* pub_key_dh = dh->get_public_key();
 
@@ -336,27 +326,55 @@ void
 Client::
 on_recv_sign_hmac(unsigned char buffer[], size_t n)
 {
+    //define some lengths
     size_t key_length = dh->get_key_length();
-    size_t signature_len = 0;
+    size_t sign_len = SIGN_SIZE;
+    size_t hmac_len = SHA256_KEY_SIZE;
+    size_t cert_len = n - key_length - sign_len - hmac_len;
+
+    //define some useful aliases
+    byte* ptr_y_s = buffer;
+    byte* ptr_sign = buffer + key_length;
+    byte* ptr_hmac = buffer + key_length + sign_len;
+    byte* ptr_cert = buffer + key_length + sign_len + hmac_len;
 
     SessionInformation* session = &connection_information.at(sd_to_server);
 
+    size_t signature_len = SIGN_SIZE;
+
     Log::dump(TO_STR("Message 2 (" << n << " bytes)").c_str(), buffer, n);
 
-    EVP_PKEY* server_public_key = read_public_key_PEM_from_file(SERVER_CERTIFICATE_FILE);
+    //get server's certificate
+    X509* server_certificate = cast_certificate_from_DER_format(ptr_cert, cert_len);
+    if (!server_certificate)
+        throw security_exception("impossible to cast server's certificate");
+
+    //get server's public key from its certificate
+    EVP_PKEY* server_public_key = extract_public_key_from_X509(server_certificate);
     if (!server_public_key)
-        throw security_exception("impossible to read server public key");
+        throw security_exception("impossible to read server's public key");
+
+    //verify server's certificate
+    if (!verify_certificate(store, server_certificate))
+    {
+        X509_free(server_certificate);
+        throw security_exception("server certificate not valid");
+    }
+
+    //TODO: check server's name == "/C=US/O=S O/OU=S OU/CN=Server" (released by "/C=US/O=Project CA Org/OU=Project CA Unit/CN=Project CA"
+    //TODO: X509_free(server_certificate);
 
     DigitalSignature* pen = new SHA256_DigitalSignature();
     
-    signature_len = (size_t) EVP_PKEY_size(server_public_key);
+    //size_t signature_len = (size_t) EVP_PKEY_size(server_public_key);
+    //cout << "signature_len: " << signature_len << endl;
 
-    byte* msg_to_verify = new byte [key_length*2];
+    byte* msg_to_verify = new byte[key_length*2];
     byte* my_dh_pub_key = dh->get_public_key();
 
-    //msg composed Y_server||SIGN_server(Y_client||Y_server)||HMAC_sessionKey(Sign)
-    memcpy(msg_to_verify,                   my_dh_pub_key,   key_length);
-    memcpy(msg_to_verify + key_length,      buffer,                 key_length);
+    //msg: Y_server || SIGN_server(Y_client||Y_server) || HMAC_sessionKey(Sign), Cert_server
+    memcpy(msg_to_verify,                   my_dh_pub_key,      key_length);
+    memcpy(msg_to_verify + key_length,      buffer,             key_length);
 
     delete[] my_dh_pub_key;
 

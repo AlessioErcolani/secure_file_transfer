@@ -198,13 +198,13 @@ on_recv_public_key_certificate_client(int sd, byte buffer[], size_t n)
 
     X509_CRL* crl = read_crl_PEM(CRL_FILE);
     if (!crl)
-        throw security_exception("impossibile to read crl");    
+        throw security_exception("impossible to read crl");    
 
     X509* ca_certificate = read_certificate_PEM_from_file(CA_CERTIFICATE_FILE);
     if (!ca_certificate)
     {
         X509_CRL_free(crl);
-        throw security_exception("impossibile to read ca certificate");
+        throw security_exception("impossible to read ca certificate");
     }
 
     X509_STORE* store = build_store(ca_certificate, crl);
@@ -212,7 +212,7 @@ on_recv_public_key_certificate_client(int sd, byte buffer[], size_t n)
     {
         X509_CRL_free(crl);
         X509_free(ca_certificate);
-        throw security_exception("impossibile to build a store");
+        throw security_exception("impossible to build a store");
     }
 
     X509* client_certificate = cast_certificate_from_DER_format(buffer + key_len, n - key_len);
@@ -306,9 +306,9 @@ on_recv_public_key_certificate_client(int sd, byte buffer[], size_t n)
         EVP_PKEY_free(private_key);
         throw security_exception(e.what());
     }
-    
     EVP_PKEY_free(private_key);
     delete pen;
+
     byte* computed_digest = NULL;
     try
     {
@@ -320,20 +320,32 @@ on_recv_public_key_certificate_client(int sd, byte buffer[], size_t n)
         throw;
     }
 
+    //read my certificate new 20190822
+    size_t certificate_len = 0;
+    byte* my_certificate = cast_certificate_in_DER_format(SERVER_CERTIFICATE_FILE, certificate_len);
+    if (!my_certificate)
+        throw security_exception("impossible to read server's certificate");
+
+    //new 20190822
+    dimension_to_send += certificate_len;
+
     size_t msg_len = dimension_to_send + sizeof(size_t);
-            
-    //dim||Y_server||SIGN_server(Y_a||Y_b)||HMAC_sessionKey(SIGN)
+
+    // dim || Y_s || SIGN_server(Y_c||Y_s) || HMAC_sessionKey(Sign) || Cert
     byte* msg_to_client = new byte[msg_len];
-    memcpy(msg_to_client,                                                &dimension_to_send,    sizeof(size_t));
-    memcpy(msg_to_client + sizeof(size_t),                               pub_key,               key_len);
-    memcpy(msg_to_client + sizeof(size_t) + key_len,                     signature,             signature_len);
-    memcpy(msg_to_client + sizeof(size_t) + key_len + signature_len,     computed_digest,       digest_len);
+
+    memcpy(msg_to_client,                                                           &dimension_to_send,    sizeof(size_t));    //dim
+    memcpy(msg_to_client + sizeof(size_t),                                          pub_key,               key_len);           //Y_s
+    memcpy(msg_to_client + sizeof(size_t) + key_len,                                signature,             signature_len);     //Sign
+    memcpy(msg_to_client + sizeof(size_t) + key_len + signature_len,                computed_digest,       digest_len);        //Hmac
+    memcpy(msg_to_client + sizeof(size_t) + key_len + signature_len + digest_len,   my_certificate,        certificate_len);   //Cert //new 20190822
 
     Log::dump(TO_STR("Message 2 (" << msg_len << " bytes)").c_str(), msg_to_client, msg_len);
 
     delete[] pub_key;
     delete[] signature;
     delete[] computed_digest;
+    delete[] my_certificate; //new 20190822
 
     try
     {
