@@ -33,4 +33,12 @@ public:
     const EVP_MD* getHashFunction() {return EVP_sha512();};
 };
 
+class Hash_SHA384 : public Hash
+{
+public:
+    Hash_SHA384() : Hash() {};
+    ~Hash_SHA384() {};
+    const EVP_MD* getHashFunction() {return EVP_sha384();};
+};
+
 #endif

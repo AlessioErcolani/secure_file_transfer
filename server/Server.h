@@ -12,6 +12,7 @@
 #include "../security/DiffieHellman.h"
 #include "../security/DigitalSignature.h"
 #include "../security/certificate.h"
+#include "../security/keys.h"
 
 using namespace std;
 

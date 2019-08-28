@@ -365,9 +365,6 @@ on_recv_sign_hmac(unsigned char buffer[], size_t n)
     //TODO: X509_free(server_certificate);
 
     DigitalSignature* pen = new SHA256_DigitalSignature();
-    
-    //size_t signature_len = (size_t) EVP_PKEY_size(server_public_key);
-    //cout << "signature_len: " << signature_len << endl;
 
     byte* msg_to_verify = new byte[key_length*2];
     byte* my_dh_pub_key = dh->get_public_key();
@@ -403,33 +400,19 @@ on_recv_sign_hmac(unsigned char buffer[], size_t n)
   
     byte* session_key = dh->compute_shared_key(buffer);
 
-    Hash* hash = new Hash_SHA512();
-    byte* digest_session_key = NULL;
+    //compute k_conf and k_auth starting from Diffie-Hellman shared session key
     try
     {
-        digest_session_key = hash->digest(session_key, key_length);
+        compute_conf_and_auth_keys(session_key, key_length, session->cipher, session->hmac);
     }
     catch(exception& e)
     {
         delete[] session_key;
-        delete hash;
-        delete pen;
         throw;
     }
-
-    size_t half_digest_session_key_len = hash->getDigestSize() / 2;
-
-    session->hmac = new SHA256_HMAC(digest_session_key);                                    //lsb
-    session->cipher = new AES_256_CBC(digest_session_key + half_digest_session_key_len);    //msb
-
-    #pragma optimize("", off)
-    memset((void*) digest_session_key, 0, hash->getDigestSize());   //clear key (for security)
-    memset((void*) session_key, 0, key_length);
-    #pragma optimize("", on)
-
     delete[] session_key;
-    delete[] digest_session_key;
-    delete hash;
+    Log::i("Established k_conf and k_auth");
+
     
     try
     {

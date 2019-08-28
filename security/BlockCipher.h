@@ -38,6 +38,16 @@ public:
     const EVP_CIPHER* getCipherType() {return EVP_aes_128_ecb();};
 };
 
+class AES_128_CBC : public BlockCipher
+{
+public:
+    AES_128_CBC(const byte* simmetric_key) : BlockCipher(simmetric_key, AES_128_KEY_SIZE, AES_128_BLOCK_SIZE) {};
+    ~AES_128_CBC() {};
+    const EVP_CIPHER* getCipherType() {return EVP_aes_128_cbc();};
+};
+
+
+
 #define AES_256_KEY_SIZE (256/8)
 #define AES_256_BLOCK_SIZE (128/8)
 

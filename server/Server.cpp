@@ -248,33 +248,18 @@ on_recv_public_key_certificate_client(int sd, byte buffer[], size_t n)
 
     byte* session_key = dh->compute_shared_key(buffer);          
 
-    Hash* hash = new Hash_SHA512();
-    byte* digest_session_key = NULL;
-
+    //compute k_conf and k_auth starting from Diffie-Hellman shared session key
     try
     {
-        digest_session_key = hash->digest(session_key, key_len);
+        compute_conf_and_auth_keys(session_key, key_len, session->cipher, session->hmac);
     }
     catch(exception& e)
     {
         delete[] session_key;
-        delete hash;
         throw;
     }
-               
-    size_t half_digest_session_key_len = hash->getDigestSize() / 2;
-
-    session->hmac = new SHA256_HMAC(digest_session_key);                                    //lsb
-    session->cipher = new AES_256_CBC(digest_session_key + half_digest_session_key_len);    //msb
-
-    #pragma optimize("", off)
-    memset((void*) digest_session_key, 0, hash->getDigestSize());   //clear key (for security)
-    memset((void*) session_key, 0, key_len);
-    #pragma optimize("", on)
-
     delete[] session_key;
-    delete[] digest_session_key;
-    delete hash;
+    Log::i("Established k_conf and k_auth");
 
     EVP_PKEY* private_key = read_private_key_PEM(PRIVATE_KEY_FILE); 
     if (!private_key)

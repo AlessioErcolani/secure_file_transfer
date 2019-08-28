@@ -16,10 +16,9 @@ using namespace std;
 
 class hMAC
 {
-    
+    byte* key;
+public:
     const size_t KEY_SIZE;
-public: 
-    byte* key;   
     hMAC(const byte* simmetric_key, size_t key_size);
     ~hMAC();
     virtual const EVP_MD* getHashFunction() = 0;

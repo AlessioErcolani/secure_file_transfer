@@ -14,6 +14,7 @@
 #include "../security/Hash.h"
 #include "../security/DiffieHellman.h"
 #include "../security/DigitalSignature.h"
+#include "../security/keys.h"
 
 
 using namespace std;
