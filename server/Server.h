@@ -13,6 +13,7 @@
 #include "../security/DigitalSignature.h"
 #include "../security/certificate.h"
 #include "../security/keys.h"
+#include "../security/Sanitizer.h"
 
 using namespace std;
 

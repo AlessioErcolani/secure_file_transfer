@@ -70,7 +70,7 @@ class Client : public AbstractHost
 
     //handlerProtocolClientServer
     void on_ack_send(string file_name);    
-    void on_receive_list_file(unsigned char buffer[], size_t buffer_len);
+    void on_receive_list_file(unsigned char buffer[], size_t buffer_len, bool last = false);
     void delete_local_file(string file_name);
     void delete_remote_file(string file_name);
     void on_error(string message);

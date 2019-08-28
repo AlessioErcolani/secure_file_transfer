@@ -10,5 +10,6 @@
 #define PATH_DIRECTORY "./server/files/"
 #define RECEIVE_PUB_KEY_CERTIFICATE_CLIENT      1
 #define RECEIVE_SIGN_HMAC                       2
+#define MAX_LIST_SIZE                           1000
 
 #endif

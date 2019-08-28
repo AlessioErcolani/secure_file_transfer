@@ -12,6 +12,7 @@
 #define RECEIVE_SIGN_HMAC       1
 #define STRING_DIM              100
 #define CLIENT_DIRECTORY_FILES  "./client/files/"
+#define SERVERS_FILE "./client/servers/servers.txt"
 
 enum command 
 {

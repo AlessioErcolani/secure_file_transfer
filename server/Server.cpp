@@ -305,13 +305,12 @@ on_recv_public_key_certificate_client(int sd, byte buffer[], size_t n)
         throw;
     }
 
-    //read my certificate new 20190822
+    //read my certificate
     size_t certificate_len = 0;
     byte* my_certificate = cast_certificate_in_DER_format(SERVER_CERTIFICATE_FILE, certificate_len);
     if (!my_certificate)
         throw security_exception("impossible to read server's certificate");
 
-    //new 20190822
     dimension_to_send += certificate_len;
 
     size_t msg_len = dimension_to_send + sizeof(size_t);
@@ -323,14 +322,14 @@ on_recv_public_key_certificate_client(int sd, byte buffer[], size_t n)
     memcpy(msg_to_client + sizeof(size_t),                                          pub_key,               key_len);           //Y_s
     memcpy(msg_to_client + sizeof(size_t) + key_len,                                signature,             signature_len);     //Sign
     memcpy(msg_to_client + sizeof(size_t) + key_len + signature_len,                computed_digest,       digest_len);        //Hmac
-    memcpy(msg_to_client + sizeof(size_t) + key_len + signature_len + digest_len,   my_certificate,        certificate_len);   //Cert //new 20190822
+    memcpy(msg_to_client + sizeof(size_t) + key_len + signature_len + digest_len,   my_certificate,        certificate_len);   //Cert
 
     Log::dump(TO_STR("Message 2 (" << msg_len << " bytes)").c_str(), msg_to_client, msg_len);
 
     delete[] pub_key;
     delete[] signature;
     delete[] computed_digest;
-    delete[] my_certificate; //new 20190822
+    delete[] my_certificate;
 
     try
     {
@@ -416,6 +415,9 @@ on_send_name_file(int sd, string file_name)
     size_t msg_len = 0;
     size_t pt_len = 0;
 
+    if (!Sanitizer::check_file_name(file_name))
+        throw security_exception("file name does not match regular expression");
+
     SessionInformation* session = &connection_information.at(sd);
 
     bool file_already_present = session->file_manager->isPresentFile(file_name);
@@ -471,58 +473,103 @@ on_ask_file_list(int sd)
 {
    
     size_t msg_len = 0;
-    byte* msg = NULL;
-    protocol code = RECEIVE_LIST_FILE;
+
+    protocol code = RECEIVE_LIST_FILE_LAST;
 
     SessionInformation* session = &connection_information.at(sd);
 
     const vector<string>* list = session->file_manager->exploreDirectory();
 
-    size_t pt_len = sizeof(unsigned short) * list->size();
+    size_t pt_len = 0;
+    int last_str_index = -1;
+    byte* pt = NULL;
+    byte* msg = NULL;
     
-    string msg_error("remote directory is empty");
-
-    for (int i = 0; i < list->size(); ++i)
-        pt_len += list->at(i).length() + 1;
-
-    if (list->size() == 0)         
-        pt_len = msg_error.length() + 1;      
-
-    byte* pt = new byte[pt_len];
-
-    if(list->size() == 0)
-    {      
+    //case: remote directory is empty
+    if (list->size() == 0)  
+    {
+        string msg_error("remote directory is empty"); 
+        pt_len = msg_error.length() + 1; 
+        pt = new byte[pt_len];
         memcpy(pt, msg_error.c_str(), pt_len); 
         code = ERROR_CODE;
-    }    
+        header_t header_info(session->packet_number_sent, pt_len, code);    //note: pt_len will be overwritten with the actual payload length
+        try
+        {
+            msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
+            sendToHost(sd, msg, msg_len);
+        }
+        catch(exception& e)
+        {
+            delete[] pt;
+            if (msg)
+                delete[] msg;
+            throw;
+        }
 
-    byte* head = pt;
-
-    for (int i = 0; i < list->size(); ++i)
-    {
-        unsigned short string_len = (unsigned short)list->at(i).length() + 1;
-        memcpy(head, &string_len, sizeof(unsigned short));
-        head +=  sizeof(unsigned short);
-        memcpy(head, list->at(i).c_str(), string_len);
-        head = head + (size_t) string_len;
-    }
-
-    header_t header_info(session->packet_number_sent, pt_len, code);                            //note: pt_len will be overwritten with the actual payload length
-    try
-    {
-        msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
-        sendToHost(sd, msg, msg_len);
-    }
-    catch(exception& e)
-    {
+        delete[] msg;
         delete[] pt;
-        if (msg)
-            delete[] msg;
-        throw;
+
+        return;
     }
 
-    delete[] msg;
-    delete[] pt;
+    //general case
+    int l = 0;
+    int h = list->size() - 1;
+
+    while (l < list->size())
+    {
+        pt_len = 0;
+        //h initialization
+        for (int i = l; i < list->size(); ++i)
+        {
+            size_t strlen_i = sizeof(unsigned short) + list->at(i).length() + 1;
+            h = i;
+            if (pt_len + strlen_i > MAX_LIST_SIZE)
+            {
+                h = i - 1;
+                code = RECEIVE_LIST_FILE;
+                break;
+            }
+            pt_len += strlen_i;
+        }
+
+        if (h == list->size() - 1)
+            code = RECEIVE_LIST_FILE_LAST;    
+
+        pt = new byte[pt_len];
+
+        byte* head = pt;
+
+        //prepare plaintext
+        for (int i = l; i <= h; ++i)
+        {
+            unsigned short string_len = (unsigned short) list->at(i).length() + 1;  //length of str_i
+            memcpy(head, &string_len, sizeof(unsigned short));                      //copy len_i
+            head +=  sizeof(unsigned short);                                        //advance ptr (by 2)
+            memcpy(head, list->at(i).c_str(), string_len);                          //copy str_i
+            head = head + (size_t) string_len;                                      //advance ptr (by len_i)
+        }
+
+        header_t header_info(session->packet_number_sent, pt_len, code);            //note: pt_len will be overwritten with the actual payload length
+        try
+        {
+            msg = prepare_message(&header_info, pt, pt_len, session->cipher, session->hmac, msg_len);
+            sendToHost(sd, msg, msg_len);
+        }
+        catch(exception& e)
+        {
+            delete[] pt;
+            if (msg)
+                delete[] msg;
+            throw;
+        }
+
+        delete[] msg;
+        delete[] pt;
+
+        l = h + 1; 
+    }
 
 }
 
@@ -537,6 +584,9 @@ on_delete_file(int sd, string file_name)
     byte* msg = NULL;
     byte* pt = NULL;
     protocol code;
+
+    if (!Sanitizer::check_file_name(file_name))
+        throw security_exception("file name does not match regular expression");
 
     string body_msg;
 
@@ -591,6 +641,9 @@ on_recv_name_file(int sd, string file_name)
 
     string body_msg;
 
+    if (!Sanitizer::check_file_name(file_name))
+        throw security_exception("file name does not match regular expression");
+
     bool success = session->file_manager->isPresentFile(file_name);
     if (!success)
     {
@@ -635,6 +688,9 @@ on_ack_send(int sd, string file_name)
     byte* pt = NULL;
     byte* msg = NULL;
     bool next_block_available = false;
+
+    if (!Sanitizer::check_file_name(file_name))
+        throw security_exception("file name does not match regular expression");
 
     SessionInformation* session = &connection_information.at(sd);
     session->file_manager->openFileReadMode(file_name);         //errors handle upper level

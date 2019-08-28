@@ -166,7 +166,6 @@ computePath(string file_name)
     string path_file=path_directory;
     path_file += "/" + file_name;
     return path_file;
-
 }
 
 void 

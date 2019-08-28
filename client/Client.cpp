@@ -223,6 +223,10 @@ onReceive(int sd, unsigned char buffer[], size_t n)
                     on_ack_send(string((char*)buffer));
                     break;
 
+                case RECEIVE_LIST_FILE_LAST: 
+                    on_receive_list_file(buffer, n, true);
+                    break;
+
                 case RECEIVE_LIST_FILE:
                     on_receive_list_file(buffer, n);
                     break;
@@ -246,6 +250,9 @@ onReceive(int sd, unsigned char buffer[], size_t n)
                 case LAST_BLOCK:
                     on_send_last_block(buffer, n);
                     break;
+
+                default:
+                    throw security_exception("message code unexpected");
             }
         }
         else
@@ -361,8 +368,18 @@ on_recv_sign_hmac(unsigned char buffer[], size_t n)
         throw security_exception("server certificate not valid");
     }
 
-    //TODO: check server's name == "/C=US/O=S O/OU=S OU/CN=Server" (released by "/C=US/O=Project CA Org/OU=Project CA Unit/CN=Project CA"
-    //TODO: X509_free(server_certificate);
+    //check server's name
+    ifstream file(SERVERS_FILE);
+    vector<string> servers;
+    for (string server_name; getline(file, server_name); )
+        servers.push_back(server_name);
+    file.close();
+    string servers_to_check = X509_certificate_to_string(server_certificate);
+    if (find(servers.begin(), servers.end(), servers_to_check) == servers.end())
+    {
+        X509_free(server_certificate);
+        throw security_exception("not legitimate server");
+    }
 
     DigitalSignature* pen = new SHA256_DigitalSignature();
 
@@ -581,12 +598,9 @@ read_remote_file_list()
 
 void 
 Client::
-on_receive_list_file(unsigned char buffer[], size_t buffer_len)
+on_receive_list_file(unsigned char buffer[], size_t buffer_len, bool last)
 {
-    cout << "\nfiles on the server: \n" << endl;
-
-    int index = 1;
-
+    static int index = 0;
     byte* end = buffer + buffer_len;
     byte* iterator = buffer;
     while (iterator != end)
@@ -597,11 +611,14 @@ on_receive_list_file(unsigned char buffer[], size_t buffer_len)
         char* file_name = new char[string_len];
         memcpy(file_name,       iterator,   string_len);
         iterator += string_len;
-        cout << "\t> " << index << ".\t" << file_name << endl;
+        cout << "\t> " << ++index << ".\t" << file_name << endl;
         delete[] file_name;
-        index++;
     }
-    cout << endl;
+    if (last)
+    {
+        cout << endl;
+        index = 0;
+    }
 }
 
 void 
