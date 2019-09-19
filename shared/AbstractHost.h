@@ -23,6 +23,8 @@
 #include "message.h"
 #include "exceptions.h"
 
+#define MAX_WRITABLE_BYTES ((size_t) 2*1024*1024*1024)
+
 using namespace std;
 
 int max(int a, int b);

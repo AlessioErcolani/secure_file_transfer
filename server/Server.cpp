@@ -454,6 +454,10 @@ on_send_file_chunck(int fd, byte* buffer, size_t buffer_len)
 {
     SessionInformation* session = &connection_information.at(fd);
 
+    session->written_bytes += buffer_len;
+    if (session->written_bytes > MAX_WRITABLE_BYTES)
+        throw security_exception("peer is writing too many bytes");
+
     session->file_manager->writeBlock(buffer, buffer_len);      //handle errors upper level
 }
 
@@ -465,6 +469,7 @@ on_send_last_block(int fd, byte*buffer, size_t buffer_len)
 
     on_send_file_chunck(fd, buffer, buffer_len);               //handle errors upper level
     session->file_manager->closeFile();
+    session->written_bytes = 0;
 }
 
 void 

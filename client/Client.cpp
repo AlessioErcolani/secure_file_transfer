@@ -528,6 +528,9 @@ on_ack_send(string file_name)
     bool next_block_available = false;
 
     SessionInformation* session = &connection_information.at(sd_to_server);
+
+    if (!Sanitizer::check_file_name(file_name))
+        throw security_exception("file name does not match regular expression");
     
     session->file_manager->openFileReadMode(file_name);    
 
@@ -607,10 +610,15 @@ on_receive_list_file(unsigned char buffer[], size_t buffer_len, bool last)
     {
         unsigned short string_len;
         memcpy(&string_len,     iterator,   sizeof(unsigned short));
+
+        if (iterator + string_len >= buffer + buffer_len)
+            throw security_exception("invalid length");
+
         iterator += sizeof(unsigned short);
         char* file_name = new char[string_len];
         memcpy(file_name,       iterator,   string_len);
         iterator += string_len;
+
         cout << "\t> " << ++index << ".\t" << file_name << endl;
         delete[] file_name;
     }
@@ -626,6 +634,12 @@ Client::
 delete_local_file(string file_name)
 {
     SessionInformation* session = &connection_information.at(sd_to_server);
+    
+    if (!Sanitizer::check_file_name(file_name))
+    {
+        cout << "\n\t> filename not valid\n" << endl;
+        return;
+    }
 
     bool success = session->file_manager->isPresentFile(file_name);
     if (!success)
@@ -655,6 +669,12 @@ delete_remote_file(string file_name)
 
     byte* msg = NULL;
     size_t msg_len = 0;
+
+    if (!Sanitizer::check_file_name(file_name))
+    {
+        cout << "\n\t> filename not valid\n" << endl;
+        return;
+    }
 
     size_t pt_len = file_name.size() + 1;
     byte* pt = new byte[pt_len];
@@ -732,9 +752,15 @@ send_file(string file_name)
 {
     SessionInformation* session = &connection_information.at(sd_to_server);
 
+    if (!Sanitizer::check_file_name(file_name))
+    {
+        cout << "\n\t> filename not valid\n" << endl;
+        return;
+    }
+
     if(!session->file_manager->isPresentFile(file_name))
     {
-        cout << "\n\t> file not present\n" << endl;;
+        cout << "\n\t> file not present\n" << endl;
         return;
     }
 
@@ -774,6 +800,12 @@ receive_file(string file_name)
     size_t pt_len = 0;
     byte* msg = NULL;
     byte* pt = NULL;
+
+    if (!Sanitizer::check_file_name(file_name))
+    {
+        cout << "\n\t> filename not valid\n" << endl;
+        return;
+    }
 
     bool success = session->file_manager->isPresentFile(file_name);
     if (success)
@@ -823,6 +855,9 @@ on_send_name_file(string file_name)
 
     SessionInformation* session = &connection_information.at(sd_to_server);
 
+    if (!Sanitizer::check_file_name(file_name))
+        throw security_exception("file name does not match regular expression");
+
     bool file_already_present = session->file_manager->isPresentFile(file_name);
 
     if (file_already_present) 
@@ -857,6 +892,10 @@ on_send_file_chunck(byte buffer[], size_t buffer_len)
 {
     SessionInformation* session = &connection_information.at(sd_to_server);
 
+    session->written_bytes += buffer_len;
+    if (session->written_bytes > MAX_WRITABLE_BYTES)
+        throw security_exception("peer is writing too many bytes");
+
     session->file_manager->writeBlock(buffer, buffer_len);                  //errors handle upper level 
 }
 
@@ -869,4 +908,5 @@ on_send_last_block(byte*buffer, size_t buffer_len)
     string file_name = session->file_manager->getNameFileOpen();  
     session->file_manager->closeFile();
     cout << "\tfinish receiving: " << file_name << "\t\n" << endl;
+    session->written_bytes = 0;
 }
