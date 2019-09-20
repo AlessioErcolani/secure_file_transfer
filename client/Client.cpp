@@ -220,6 +220,7 @@ onReceive(int sd, unsigned char buffer[], size_t n)
             switch(get_message_code(sd))
             {
                 case ACK_CODE_SEND:
+                    buffer[n - 1] = '\0';
                     on_ack_send(string((char*)buffer));
                     break;
 
@@ -232,14 +233,17 @@ onReceive(int sd, unsigned char buffer[], size_t n)
                     break;
 
                 case ERROR_CODE:
+                    buffer[n - 1] = '\0';
                     on_error(string((char*)buffer));
                     break;
 
                 case ACK_CODE_DELETE:
+                    buffer[n - 1] = '\0';
                     on_ack_delete(string((char*)buffer));
                     break;
 
                 case SEND_NAME_FILE:
+                    buffer[n - 1] = '\0';
                     on_send_name_file(string((char*)buffer));
                     break;
 
@@ -617,6 +621,7 @@ on_receive_list_file(unsigned char buffer[], size_t buffer_len, bool last)
         iterator += sizeof(unsigned short);
         char* file_name = new char[string_len];
         memcpy(file_name,       iterator,   string_len);
+        file_name[string_len-1] = '\0';
         iterator += string_len;
 
         cout << "\t> " << ++index << ".\t" << file_name << endl;

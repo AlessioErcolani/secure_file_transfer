@@ -108,6 +108,7 @@ onReceive(int sd, unsigned char buffer[], size_t n)
             switch(get_message_code(sd))
             {
                 case SEND_NAME_FILE:
+                    buffer[n - 1] = '\0';
                     on_send_name_file(sd, string((char*)buffer));
                     break;
                 case SEND_FILE_CHUNCK:
@@ -120,12 +121,15 @@ onReceive(int sd, unsigned char buffer[], size_t n)
                     on_ask_file_list(sd);
                     break;
                 case DELETE_FILE:
+                    buffer[n - 1] = '\0';
                     on_delete_file(sd, string((char*)buffer));
                     break;
                 case RECEIVE_NAME_FILE:
+                    buffer[n - 1] = '\0';
                     on_recv_name_file(sd, string((char*)buffer));
                     break;
                 case ACK_CODE_SEND:
+                    buffer[n - 1] = '\0';
                     on_ack_send(sd, string((char*)buffer));
                     break;
 
